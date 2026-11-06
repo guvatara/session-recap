@@ -1,11 +1,13 @@
 /**
  * Session Recap Lite
  * Маленький модуль: собирает события сессии (нат. 20 / нат. 1 на d20,
- * нанесённый урон, завершённые бои, ручные заметки GM) и публикует сводку.
+ * нанесённый урон, завершённые бои, ручные заметки GM), публикует сводку
+ * в чат и сохраняет её страницей журнала.
  *
  * Команды чата:
  *   /recap            — опубликовать сводку (видят все)
  *   /recap gm         — сводку видит только GM
+ *   /recap journal    — сохранить сводку страницей журнала
  *   /recap note Текст — добавить заметку в сводку
  *   /recap clear      — очистить накопленные события и статистику
  *
@@ -151,6 +153,8 @@ Hooks.on("chatMessage", (chatLog, text) => {
     game.settings.set(MODULE_ID, "events", []);
     game.settings.set(MODULE_ID, "stats", { damageTotal: 0, damageByActor: {} });
     ui.notifications.info("Session Recap: события и статистика очищены.");
+  } else if (rest === "journal") {
+    saveRecapToJournal();
   } else {
     postRecap(rest === "gm");
   }
@@ -158,9 +162,9 @@ Hooks.on("chatMessage", (chatLog, text) => {
   return false; // не отправляем саму команду в чат
 });
 
-/* ---------- Публикация сводки ---------- */
+/* ---------- HTML сводки ---------- */
 
-async function postRecap(gmOnly = false) {
+function buildRecapHtml({ withButton = false } = {}) {
   const events = getEvents();
   const stats = getStats();
 
@@ -182,15 +186,63 @@ async function postRecap(gmOnly = false) {
       </div>`;
   }
 
-  const content = `
+  const button = withButton
+    ? `<button type="button" class="recap-save-journal">📓 Сохранить в журнал</button>`
+    : "";
+
+  return `
     <div class="session-recap">
       <h3>📜 Сводка сессии</h3>
       <ul>${rows}</ul>
       ${statsBlock}
+      ${button}
     </div>`;
+}
 
+/* ---------- Публикация сводки в чат ---------- */
+
+async function postRecap(gmOnly = false) {
   await ChatMessage.create({
-    content,
-    whisper: gmOnly ? ChatMessage.getWhisperRecipients("GM") : []
+    content: buildRecapHtml({ withButton: game.user.isGM }),
+    whisper: gmOnly ? ChatMessage.getWhisperRecipients("GM") : [],
+    flags: { [MODULE_ID]: { isRecap: true } }
   });
+}
+
+/* ---------- Кнопка «Сохранить в журнал» в сообщении сводки ---------- */
+
+Hooks.on("renderChatMessage", (message, html) => {
+  if (!message.flags?.[MODULE_ID]?.isRecap) return;
+  if (!game.user.isGM) return; // кнопка только для GM
+
+  // v12: html — jQuery; v13+: HTMLElement
+  const el = html instanceof HTMLElement ? html : html[0];
+  const button = el?.querySelector(".recap-save-journal");
+  if (!button) return;
+
+  button.addEventListener("click", () => saveRecapToJournal());
+});
+
+/* ---------- Сохранение сводки страницей журнала ---------- */
+
+async function saveRecapToJournal() {
+  if (!game.user.isGM) {
+    ui.notifications.warn("Session Recap: сохранять в журнал может только GM.");
+    return;
+  }
+
+  const date = new Date().toLocaleDateString("ru-RU");
+  const journal = await JournalEntry.create({
+    name: `Сводка сессии — ${date}`,
+    pages: [{
+      name: "Сводка",
+      type: "text",
+      text: { format: 1, content: buildRecapHtml() }
+    }]
+  });
+
+  if (journal) {
+    ui.notifications.info(`Session Recap: создан журнал «${journal.name}».`);
+    journal.sheet.render(true);
+  }
 }
