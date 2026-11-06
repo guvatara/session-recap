@@ -20,8 +20,6 @@
 https://github.com/guvatara/session-recap/releases/latest/download/module.json
 ```
 
-(замените `guvatara` на ваш GitHub-аккаунт)
-
 ## Использование
 
 | Команда | Действие |
