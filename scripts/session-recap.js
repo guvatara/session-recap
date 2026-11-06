@@ -80,6 +80,18 @@ Hooks.once("init", () => {
     type: Boolean,
     default: true
   });
+
+  // Foundry v14+: нативная регистрация команды /recap в реестре ChatLog
+  const ChatLogClass = foundry?.applications?.sidebar?.tabs?.ChatLog ?? globalThis.ChatLog;
+  if (ChatLogClass?.CHAT_COMMANDS) {
+    ChatLogClass.CHAT_COMMANDS.recap = {
+      rgx: /^\/recap(?:\s+(.+))?$/,
+      fn: async (command, match) => {
+        await handleRecapCommand((match[1] ?? "").trim());
+        return false; // не создавать сообщение от самой команды
+      }
+    };
+  }
 });
 
 /* ---------- Определение типа броска: dnd5e и PF2e ---------- */
@@ -137,28 +149,33 @@ Hooks.on("deleteCombat", async () => {
 
 /* ---------- Команда /recap ---------- */
 
-Hooks.on("chatMessage", (chatLog, text) => {
-  const trimmed = text.trim();
-  if (!trimmed.startsWith("/recap")) return; // не наша команда — пропускаем дальше
-
-  const rest = trimmed.slice("/recap".length).trim();
-
+async function handleRecapCommand(rest) {
   if (rest.startsWith("note")) {
     const noteText = rest.slice(4).trim();
     if (noteText) {
-      addEvent("note", noteText);
+      await addEvent("note", noteText);
       ui.notifications.info("Session Recap: заметка добавлена.");
     }
   } else if (rest === "clear") {
-    game.settings.set(MODULE_ID, "events", []);
-    game.settings.set(MODULE_ID, "stats", { damageTotal: 0, damageByActor: {} });
+    await game.settings.set(MODULE_ID, "events", []);
+    await game.settings.set(MODULE_ID, "stats", { damageTotal: 0, damageByActor: {} });
     ui.notifications.info("Session Recap: события и статистика очищены.");
   } else if (rest === "journal") {
-    saveRecapToJournal();
+    await saveRecapToJournal();
   } else {
-    postRecap(rest === "gm");
+    await postRecap(rest === "gm");
   }
+}
 
+// Foundry v12–13: перехват команды через хук ввода (в v14 работает CHAT_COMMANDS выше)
+Hooks.on("chatMessage", (chatLog, text) => {
+  const ChatLogClass = foundry?.applications?.sidebar?.tabs?.ChatLog ?? globalThis.ChatLog;
+  if (ChatLogClass?.CHAT_COMMANDS) return; // v14: команда уже обработана нативно
+
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("/recap")) return; // не наша команда — пропускаем дальше
+
+  handleRecapCommand(trimmed.slice("/recap".length).trim());
   return false; // не отправляем саму команду в чат
 });
 
@@ -211,16 +228,21 @@ async function postRecap(gmOnly = false) {
 
 /* ---------- Кнопка «Сохранить в журнал» в сообщении сводки ---------- */
 
-Hooks.on("renderChatMessage", (message, html) => {
+function attachJournalButton(message, el) {
+  if (!el?.querySelector) return;
   if (!message.flags?.[MODULE_ID]?.isRecap) return;
   if (!game.user.isGM) return; // кнопка только для GM
 
-  // v12: html — jQuery; v13+: HTMLElement
-  const el = html instanceof HTMLElement ? html : html[0];
-  const button = el?.querySelector(".recap-save-journal");
-  if (!button) return;
+  const button = el.querySelector(".recap-save-journal");
+  if (button) button.addEventListener("click", () => saveRecapToJournal());
+}
 
-  button.addEventListener("click", () => saveRecapToJournal());
+// Foundry v13+ (html — HTMLElement)
+Hooks.on("renderChatMessageHTML", (message, html) => attachJournalButton(message, html));
+
+// Foundry v12 (html — jQuery)
+Hooks.on("renderChatMessage", (message, html) => {
+  attachJournalButton(message, html instanceof HTMLElement ? html : html?.[0]);
 });
 
 /* ---------- Сохранение сводки страницей журнала ---------- */
