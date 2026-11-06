@@ -1,13 +1,13 @@
 /**
  * Session Recap Lite
  * Маленький модуль: собирает события сессии (нат. 20 / нат. 1 на d20,
- * нанесённый урон, завершённые бои, ручные заметки GM), публикует сводку
- * в чат и сохраняет её страницей журнала.
+ * нанесённый урон и лечение, завершённые бои, ручные заметки GM),
+ * публикует сводку в чат и сохраняет её страницей журнала.
  *
  * Команды чата:
  *   /recap            — опубликовать сводку (видят все)
  *   /recap gm         — сводку видит только GM
- *   /recap journal    — сохранить сводку страницей журнала
+ *   /recap journal    — сохранить сводку страницей журнала и начать новую сессию
  *   /recap note Текст — добавить заметку в сводку
  *   /recap clear      — очистить накопленные события и статистику
  *
@@ -18,6 +18,11 @@
 
 const MODULE_ID = "session-recap";
 
+const EMPTY_STATS = () => ({
+  damageTotal: 0, damageByActor: {},
+  healingTotal: 0, healingByActor: {}
+});
+
 /* ---------- Хранилище: события и статистика живут в world-настройках ---------- */
 
 function getEvents() {
@@ -25,7 +30,7 @@ function getEvents() {
 }
 
 function getStats() {
-  return game.settings.get(MODULE_ID, "stats") ?? { damageTotal: 0, damageByActor: {} };
+  return { ...EMPTY_STATS(), ...(game.settings.get(MODULE_ID, "stats") ?? {}) };
 }
 
 async function addEvent(kind, text) {
@@ -38,11 +43,12 @@ async function addEvent(kind, text) {
   await game.settings.set(MODULE_ID, "events", events);
 }
 
-async function addDamage(actorName, amount) {
+async function addStat(kind, actorName, amount) {
   const stats = getStats();
-  stats.damageTotal = (stats.damageTotal ?? 0) + amount;
-  stats.damageByActor = stats.damageByActor ?? {};
-  stats.damageByActor[actorName] = (stats.damageByActor[actorName] ?? 0) + amount;
+  stats[`${kind}Total`] = (stats[`${kind}Total`] ?? 0) + amount;
+  const byActor = stats[`${kind}ByActor`] ?? {};
+  byActor[actorName] = (byActor[actorName] ?? 0) + amount;
+  stats[`${kind}ByActor`] = byActor;
   await game.settings.set(MODULE_ID, "stats", stats);
 }
 
@@ -60,7 +66,7 @@ Hooks.once("init", () => {
     scope: "world",
     config: false,
     type: Object,
-    default: { damageTotal: 0, damageByActor: {} }
+    default: EMPTY_STATS()
   });
 
   game.settings.register(MODULE_ID, "autoRecapCombat", {
@@ -96,6 +102,17 @@ Hooks.once("init", () => {
 
 /* ---------- Определение типа броска: dnd5e и PF2e ---------- */
 
+function isHealingRoll(message) {
+  // D&D 5e: отдельный тип "healing" или damage с типом "healing"
+  const roll5e = message.flags?.dnd5e?.roll;
+  if (roll5e?.type === "healing") return true;
+  if (roll5e?.type === "damage" && (roll5e.damageTypes ?? []).includes?.("healing")) return true;
+  // PF2e: лечение приходит как damage-roll с трейтом healing в опциях
+  const ctx = message.flags?.pf2e?.context;
+  if (ctx?.type === "damage-roll" && (ctx.options ?? []).some(o => o.includes("healing"))) return true;
+  return false;
+}
+
 function isDamageRoll(message) {
   // D&D 5e: flags.dnd5e.roll.type === "damage"
   if (message.flags?.dnd5e?.roll?.type === "damage") return true;
@@ -112,10 +129,14 @@ Hooks.on("createChatMessage", (message) => {
 
   const actorName = message.speaker?.alias ?? "Кто-то";
 
-  // Подсчёт урона
-  if (isDamageRoll(message)) {
-    const total = rolls.reduce((sum, roll) => sum + (roll.total ?? 0), 0);
-    if (total > 0) addDamage(actorName, Math.round(total));
+  // Подсчёт лечения и урона (лечение в обеих системах технически — damage-roll)
+  const total = Math.round(rolls.reduce((sum, roll) => sum + (roll.total ?? 0), 0));
+  if (total > 0) {
+    if (isHealingRoll(message)) {
+      addStat("healing", actorName, total);
+    } else if (isDamageRoll(message)) {
+      addStat("damage", actorName, total);
+    }
   }
 
   // Натуральные 20 и 1 на d20
@@ -157,14 +178,18 @@ async function handleRecapCommand(rest) {
       ui.notifications.info("Session Recap: заметка добавлена.");
     }
   } else if (rest === "clear") {
-    await game.settings.set(MODULE_ID, "events", []);
-    await game.settings.set(MODULE_ID, "stats", { damageTotal: 0, damageByActor: {} });
+    await clearRecap();
     ui.notifications.info("Session Recap: события и статистика очищены.");
   } else if (rest === "journal") {
     await saveRecapToJournal();
   } else {
     await postRecap(rest === "gm");
   }
+}
+
+async function clearRecap() {
+  await game.settings.set(MODULE_ID, "events", []);
+  await game.settings.set(MODULE_ID, "stats", EMPTY_STATS());
 }
 
 // Foundry v12–13: перехват команды через хук ввода (в v14 работает CHAT_COMMANDS выше)
@@ -181,6 +206,19 @@ Hooks.on("chatMessage", (chatLog, text) => {
 
 /* ---------- HTML сводки ---------- */
 
+function buildStatLine(icon, label, total, byActor) {
+  if (!total) return "";
+  const entries = Object.entries(byActor ?? {}).sort((a, b) => b[1] - a[1]);
+  if (!entries.length) return "";
+  const [topName, topValue] = entries[0];
+  const perActor = entries.map(([name, value]) => `${name} — ${value}`).join(", ");
+  return `
+    <div class="recap-stats">
+      ${icon} <b>${label}:</b> ${total} (лучший: ${topName} — ${topValue})
+      <div class="recap-stats-detail">${perActor}</div>
+    </div>`;
+}
+
 function buildRecapHtml({ withButton = false } = {}) {
   const events = getEvents();
   const stats = getStats();
@@ -190,18 +228,9 @@ function buildRecapHtml({ withButton = false } = {}) {
     ? events.map(e => `<li class="recap-${e.kind}"><span class="recap-time">${e.time}</span> ${icons[e.kind] ?? "•"} ${e.text}</li>`).join("")
     : `<li class="recap-empty">Пока ничего не произошло — сессия только начинается!</li>`;
 
-  // Блок статистики урона (показываем, только если урон был)
-  let statsBlock = "";
-  if (stats.damageTotal > 0) {
-    const entries = Object.entries(stats.damageByActor).sort((a, b) => b[1] - a[1]);
-    const [topName, topDamage] = entries[0];
-    const perActor = entries.map(([name, dmg]) => `${name} — ${dmg}`).join(", ");
-    statsBlock = `
-      <div class="recap-stats">
-        ⚔️ <b>Урон за сессию:</b> ${stats.damageTotal} (лучший: ${topName} — ${topDamage})
-        <div class="recap-stats-detail">${perActor}</div>
-      </div>`;
-  }
+  const statsBlock =
+    buildStatLine("⚔️", "Урон за сессию", stats.damageTotal, stats.damageByActor) +
+    buildStatLine("💚", "Лечение за сессию", stats.healingTotal, stats.healingByActor);
 
   const button = withButton
     ? `<button type="button" class="recap-save-journal">📓 Сохранить в журнал</button>`
@@ -263,8 +292,11 @@ async function saveRecapToJournal() {
     }]
   });
 
-  if (journal) {
-    ui.notifications.info(`Session Recap: создан журнал «${journal.name}».`);
-    journal.sheet.render(true);
-  }
+  if (!journal) return;
+
+  // Отчёт сохранён — начинаем новую сессию с чистого листа
+  await clearRecap();
+
+  ui.notifications.info(`Session Recap: создан журнал «${journal.name}», счётчики обнулены.`);
+  journal.sheet.render(true);
 }
