@@ -2,7 +2,7 @@
   "id": "session-recap",
   "title": "Session Recap Lite",
   "description": "Запоминает яркие моменты сессии (натуральные 20 и 1 на d20, заметки GM) и выводит сводку в чат командой /recap.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "authors": [
     { "name": "Guvatara" }
   ],
