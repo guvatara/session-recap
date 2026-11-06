@@ -15,10 +15,10 @@
 В Foundry VTT: **Add-on Modules** → **Install Module** → в поле **Manifest URL** вставить:
 
 ```
-https://github.com/USERNAME/session-recap/releases/latest/download/module.json
+https://github.com/guvatara/session-recap/releases/latest/download/module.json
 ```
 
-(замените `USERNAME` на ваш GitHub-аккаунт)
+(замените `guvatara` на ваш GitHub-аккаунт)
 
 ## Использование
 

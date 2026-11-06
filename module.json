@@ -10,8 +10,8 @@
     "minimum": "12",
     "verified": "14"
   },
-  "url": "https://github.com/USERNAME/session-recap",
-  "manifest": "https://github.com/USERNAME/session-recap/releases/latest/download/module.json",
+  "url": "https://github.com/guvatara/session-recap",
+  "manifest": "https://github.com/guvatara/session-recap/releases/latest/download/module.json",
   "download": "",
   "esmodules": [
     "scripts/session-recap.js"
