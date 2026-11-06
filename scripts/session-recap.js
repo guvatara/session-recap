@@ -263,7 +263,9 @@ function attachJournalButton(message, el) {
   if (!game.user.isGM) return; // кнопка только для GM
 
   const button = el.querySelector(".recap-save-journal");
-  if (button) button.addEventListener("click", () => saveRecapToJournal());
+  if (!button || button.dataset.recapBound) return; // не вешаем обработчик дважды
+  button.dataset.recapBound = "1";
+  button.addEventListener("click", () => saveRecapToJournal());
 }
 
 // Foundry v13+ (html — HTMLElement)
@@ -276,27 +278,35 @@ Hooks.on("renderChatMessage", (message, html) => {
 
 /* ---------- Сохранение сводки страницей журнала ---------- */
 
+let savingToJournal = false;
+
 async function saveRecapToJournal() {
   if (!game.user.isGM) {
     ui.notifications.warn("Session Recap: сохранять в журнал может только GM.");
     return;
   }
+  if (savingToJournal) return; // защита от двойного клика / повторного вызова
+  savingToJournal = true;
 
-  const date = new Date().toLocaleDateString("ru-RU");
-  const journal = await JournalEntry.create({
-    name: `Сводка сессии — ${date}`,
-    pages: [{
-      name: "Сводка",
-      type: "text",
-      text: { format: 1, content: buildRecapHtml() }
-    }]
-  });
+  try {
+    const date = new Date().toLocaleDateString("ru-RU");
+    const journal = await JournalEntry.create({
+      name: `Сводка сессии — ${date}`,
+      pages: [{
+        name: "Сводка",
+        type: "text",
+        text: { format: 1, content: buildRecapHtml() }
+      }]
+    });
 
-  if (!journal) return;
+    if (!journal) return;
 
-  // Отчёт сохранён — начинаем новую сессию с чистого листа
-  await clearRecap();
+    // Отчёт сохранён — начинаем новую сессию с чистого листа
+    await clearRecap();
 
-  ui.notifications.info(`Session Recap: создан журнал «${journal.name}», счётчики обнулены.`);
-  journal.sheet.render(true);
+    ui.notifications.info(`Session Recap: создан журнал «${journal.name}», счётчики обнулены.`);
+    journal.sheet.render(true);
+  } finally {
+    savingToJournal = false;
+  }
 }
