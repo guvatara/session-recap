@@ -1,0 +1,41 @@
+.session-recap {
+  border: 1px solid #7a6a4f;
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: rgba(30, 25, 18, 0.06);
+}
+
+.session-recap h3 {
+  margin: 0 0 6px;
+  border-bottom: 1px solid #7a6a4f;
+  font-size: 1.05em;
+}
+
+.session-recap ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.session-recap li {
+  padding: 2px 0;
+}
+
+.session-recap .recap-time {
+  opacity: 0.6;
+  font-size: 0.85em;
+  margin-right: 4px;
+}
+
+.session-recap .recap-crit {
+  color: #1a7f37;
+}
+
+.session-recap .recap-fumble {
+  color: #b02a2a;
+}
+
+.session-recap .recap-empty {
+  font-style: italic;
+  opacity: 0.7;
+}

@@ -1,0 +1,22 @@
+{
+  "id": "session-recap",
+  "title": "Session Recap Lite",
+  "description": "Запоминает яркие моменты сессии (натуральные 20 и 1 на d20, заметки GM) и выводит сводку в чат командой /recap.",
+  "version": "1.0.0",
+  "authors": [
+    { "name": "Guvatara" }
+  ],
+  "compatibility": {
+    "minimum": "12",
+    "verified": "14"
+  },
+  "url": "https://github.com/USERNAME/session-recap",
+  "manifest": "https://github.com/USERNAME/session-recap/releases/latest/download/module.json",
+  "download": "",
+  "esmodules": [
+    "scripts/session-recap.js"
+  ],
+  "styles": [
+    "styles/session-recap.css"
+  ]
+}
